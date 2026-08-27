@@ -16,14 +16,14 @@ STREAM_ID = None
 client = None  # глобальный клиент для запросов к API
 
 
-def send_ntfy_push(user_id, title, message):
+def send_ntfy_push(user_id: int, title: str, message: str) -> None:
     try:
         headers = {
             "Title": title.encode('utf-8'),
             "Priority": "high",
             "Tags": "speech_balloon,bell"
         }
-        # у каждого пользователя свой топик:zulip_user_<id>
+        # у каждого пользователя свой ulip_user_<id>
         user_topic = f"zulip_user_{user_id}"
         url = f"{NTFY_BASE_URL}/{user_topic}"
 
@@ -44,7 +44,6 @@ def send_ntfy_push(user_id, title, message):
 
 # def get_stream_subscribers(stream_id):
 #     try:
-#         # получаю список подписчиков конкретного канала
 #         result = client.get_subscribers(stream_id=stream_id)
 #         if result.get('result') == 'success':
 #             return result.get('subscribers', [])
@@ -55,7 +54,7 @@ def send_ntfy_push(user_id, title, message):
 #         print(f"Ошибка при обращении к API получения подписчиков: {e}")
 #         return []
 
-def get_stream_subscribers(stream_name):
+def get_stream_subscribers(stream_name: str) -> list:
     try:
         result = client.get_subscribers(stream=stream_name)
         if result.get('result') == 'success':
@@ -68,7 +67,7 @@ def get_stream_subscribers(stream_name):
         return []
 
 
-def process_event(event):
+def process_event(event) -> None:
     global BOT_EMAIL, STREAM_NAME, STREAM_ID
 
     if event.get('type') == 'message':
@@ -96,6 +95,7 @@ def process_event(event):
 
 
 def main():
+    # инициализация
     global BOT_EMAIL, NTFY_BASE_URL, STREAM_NAME, STREAM_ID, client
 
     if not os.path.exists(ZULIPRC_PATH):
@@ -119,7 +119,7 @@ def main():
         print(f"Ошибка парсинга секции [ntfy] в zuliprc: {e}")
         return
 
-    # инициализирую стандартный клиент Zulip
+    # инициализирую клиент Zulip
     try:
         client = zulip.Client(config_file=ZULIPRC_PATH)
         BOT_EMAIL = client.email
@@ -128,18 +128,18 @@ def main():
         print(f"Ошибка инициализации клиента Zulip: {e}")
         return
 
-    # получаю ID канала по его имени
-    try:
-        stream_info = client.get_stream_id(STREAM_NAME)
-        if stream_info.get('result') == 'success':
-            STREAM_ID = stream_info.get('stream_id')
-            print(f"ID канала '{STREAM_NAME}': {STREAM_ID}")
-        else:
-            print(f"Ошибка: Не удалось найти ID канала '{STREAM_NAME}': {stream_info.get('msg')}")
-            return
-    except Exception as e:
-        print(f"Ошибка при получении ID канала: {e}")
-        return
+    # # получаю ID канала по его имени
+    # try:
+    #     stream_info = client.get_stream_id(STREAM_NAME)
+    #     if stream_info.get('result') == 'success':
+    #         STREAM_ID = stream_info.get('stream_id')
+    #         print(f"ID канала '{STREAM_NAME}': {STREAM_ID}")
+    #     else:
+    #         print(f"Ошибка: Не удалось найти ID канала '{STREAM_NAME}': {stream_info.get('msg')}")
+    #         return
+    # except Exception as e:
+    #     print(f"Ошибка при получении ID канала: {e}")
+    #     return
 
     print(f"Сервис запущен. Слушаю канал '{STREAM_NAME}' и шлю персональные пуши...")
 
