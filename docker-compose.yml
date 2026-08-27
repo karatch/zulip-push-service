@@ -1,0 +1,14 @@
+services:
+  zulip-notifier:
+    build: .
+    container_name: zulip-notifier
+    restart: always
+    volumes:
+      - ./zuliprc:/app/zuliprc:ro
+    networks:
+      - zulip_network
+
+networks:
+  zulip_network:
+    external: true
+    name: docker-zulip_default  # имя сети Zulip

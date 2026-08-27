@@ -1,0 +1,8 @@
+[api]
+email=push-bot@zulip.local
+key=fN7y8BrWBTkbBeB8u7R2a1I5Ge3uLLCh
+site=https://zulip.local
+insecure=true
+
+[ntfy]
+stream=channel testing
