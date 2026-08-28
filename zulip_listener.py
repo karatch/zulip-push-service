@@ -3,6 +3,7 @@ import requests
 import os
 import urllib3
 import configparser
+from concurrent.futures import ThreadPoolExecutor
 
 # без предупреждений о небезопасном SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -14,6 +15,8 @@ NTFY_BASE_URL = "https://ntfy.sh"
 STREAM_NAME = None
 STREAM_ID = None
 client = None  # глобальный клиент для запросов к API
+
+executor = ThreadPoolExecutor(max_workers=25)
 
 
 def send_ntfy_push(user_id: int, title: str, message: str) -> None:
@@ -27,6 +30,7 @@ def send_ntfy_push(user_id: int, title: str, message: str) -> None:
         user_topic = f"zulip_user_{user_id}"
         url = f"{NTFY_BASE_URL}/{user_topic}"
 
+
         res = requests.post(
             url,
             data=message.encode('utf-8'),
@@ -34,6 +38,7 @@ def send_ntfy_push(user_id: int, title: str, message: str) -> None:
             timeout=5,
             verify=False  # игнорировать проверку SSL для ntfy
         )
+        print(f"my message: {dir(message)}")
         if res.status_code == 200:
             print(f"Отправлен пуш для пользователя ID {user_id}: {title}")
         else:
@@ -42,17 +47,6 @@ def send_ntfy_push(user_id: int, title: str, message: str) -> None:
         print(f"Не удалось отправить пуш в ntfy для ID {user_id}: {e}")
 
 
-# def get_stream_subscribers(stream_id):
-#     try:
-#         result = client.get_subscribers(stream_id=stream_id)
-#         if result.get('result') == 'success':
-#             return result.get('subscribers', [])
-#         else:
-#             print(f"Ошибка получения подписчиков: {result.get('msg')}")
-#             return []
-#     except Exception as e:
-#         print(f"Ошибка при обращении к API получения подписчиков: {e}")
-#         return []
 
 def get_stream_subscribers(stream_name: str) -> list:
     try:
@@ -91,7 +85,8 @@ def process_event(event) -> None:
         for user_id in subscribers:
             if user_id == sender_id:
                 continue
-            send_ntfy_push(user_id, push_title, push_message)
+            # send_ntfy_push(user_id, push_title, push_message)
+            executor.submit(send_ntfy_push, user_id, push_title, push_message)
 
 
 def main():
@@ -143,7 +138,7 @@ def main():
 
     print(f"Сервис запущен. Слушаю канал '{STREAM_NAME}' и шлю персональные пуши...")
 
-    # встроенный long-polling
+    # использую long-polling
     try:
         client.call_on_each_event(
             callback=process_event,
@@ -152,6 +147,8 @@ def main():
         )
     except Exception as e:
         print(f"критическая ошибка в цикле обработки событий: {e}")
+    finally:
+        executor.shutdown(wait=False)
 
 
 if __name__ == "__main__":
@@ -159,3 +156,5 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nсервис остановлен пользователем")
+        executor.shutdown(wait=False)
+
