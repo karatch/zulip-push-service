@@ -1,0 +1,20 @@
+[Unit]
+Description=Zulip Message Listener Service
+After=network.target
+
+[Service]
+Type=simple
+# пользователь, от имени которого будет работать сервис
+User=root
+# путь к исполняемому файлу
+ExecStart=/usr/local/bin/zulip_listener
+# рабочая директория, где лежит файл конфигурации zuliprc
+WorkingDirectory=/usr/local/bin
+# работа в небуферизованном режиме
+Environment=PYTHONUNBUFFERED=1
+# автоматический перезапуск скрипта в случае его падения через 5 секунд
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
