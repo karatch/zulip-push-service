@@ -10,24 +10,58 @@ ZULIPRC_PATH = "zuliprc"
 
 BOT_EMAIL = None
 STREAM_NAME = None
-client = None  # глобальный клиент Zulip
+client = None
 
 TELEGRAM_BOT_TOKEN = None
-USER_MAPPING = {}  # {zulip_id: telegram_id}
+USER_MAPPING = {}  # Словарь {zulip_id: telegram_id}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
+#  асинхронная сессия для запросов к Telegram
 async_session = None
 loop = None
 
 
 async def send_telegram_push(tg_chat_id: int, stream_name: str, topic: str, sender_name: str,
                              message_content: str) -> None:
-    pass
+    text = (
+        f"🔔 <b>Новое сообщение в Zulip [{stream_name}]</b>\n"
+        f"<b>Тема:</b> {topic}\n"
+        f"<b>От:</b> {sender_name}\n\n"
+        f"{message_content}"
+    )
+
+    url = f"https://telegram.org{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": tg_chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+
+    try:
+        # таймаут 5 секунд
+        async with async_session.post(url, json=payload, timeout=5) as response:
+            if response.status == 200:
+                logging.info(f"[Telegram] Пуш успешно отправлен в чат {tg_chat_id}")
+            else:
+                response_text = await response.text()
+                logging.error(f"[Telegram] Ошибка отправки: код {response.status}, ответ: {response_text}")
+    except Exception as e:
+        logging.error(f"[Telegram] Исключение при отправке для чата {tg_chat_id}: {e}")
 
 
 def get_stream_subscribers(stream_name: str) -> list:
-    pass
+    try:
+        result = client.get_subscribers(stream=stream_name)
+        if result.get('result') == 'success':
+            return result.get('subscribers', [])
+        else:
+            logging.error(f"Ошибка получения подписчиков Zulip: {result.get('msg')}")
+            return []
+    except Exception as e:
+        logging.error(f"Ошибка при обращении к API подписчиков: {e}")
+        return []
 
 
 def process_event(event: dict) -> None:
@@ -36,7 +70,7 @@ def process_event(event: dict) -> None:
     if event.get('type') == 'message':
         msg = event['message']
 
-        if msg['sender_email'] == BOT_EMAIL:
+        if msg['sender_email'] == BOT_EMAIL or msg['type'] == 'private':
             return
 
         sender_id = msg['sender_id']
@@ -105,8 +139,11 @@ async def main():
 
     async with aiohttp.ClientSession() as session:
         async_session = session
+
         try:
+            # синхронная функция в отдельном системном пуле (ThreadPool)
             await loop.run_in_executor(None, start_zulip_listener)
+
         except Exception as e:
             logging.critical(f"Критическая ошибка в цикле обработки событий: {e}")
 
