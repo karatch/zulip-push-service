@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
-import database
+from telegram import database
 
 BASE_DIR = Path(__file__).resolve().parent
 ZULIPRC_PATH = BASE_DIR / "zuliprc"
