@@ -2,3 +2,6 @@
 .env
 
 zuliprc
+telegram_push/zuliprc
+testing/
+

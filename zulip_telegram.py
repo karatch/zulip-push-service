@@ -116,13 +116,13 @@ async def main():
         config = configparser.ConfigParser()
         config.read(ZULIPRC_PATH)
 
-        if not config.has_section('ntfy') or not config.has_section('telegram'):
-            logging.error("В файле zuliprc отсутствуют необходимые секции [ntfy] или [telegram]")
+        if not config.has_section('ntfy') or not config.has_section('telegram_push'):
+            logging.error("В файле zuliprc отсутствуют необходимые секции [ntfy] или [telegram_push]")
             return
 
         STREAM_NAME = config.get('ntfy', 'stream')
-        TELEGRAM_BOT_TOKEN = config.get('telegram', 'bot_token')
-        USER_MAPPING = {key: config.get('telegram', key) for key in config.options('telegram') if key != 'bot_token'}
+        TELEGRAM_BOT_TOKEN = config.get('telegram_push', 'bot_token')
+        USER_MAPPING = {key: config.get('telegram_push', key) for key in config.options('telegram_push') if key != 'bot_token'}
         logging.info(f"Успешно загружено аккаунтов Telegram: {len(USER_MAPPING)}")
 
     except Exception as e:

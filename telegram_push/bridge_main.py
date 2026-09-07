@@ -32,7 +32,7 @@ class ZulipTelegramBridge:
         config.read(ZULIPRC_PATH)
 
         self.stream_name = config.get('ntfy', 'stream')
-        self.tg_token = config.get('telegram', 'bot_token')
+        self.tg_token = config.get('telegram_push', 'bot_token')
 
     async def send_telegram_push(self, tg_chat_id: int, topic: str, sender_name: str, message_content: str) -> None:
         text = (
