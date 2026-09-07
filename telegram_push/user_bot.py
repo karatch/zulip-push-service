@@ -4,7 +4,7 @@ import configparser
 from pathlib import Path
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 import database
 
@@ -13,6 +13,9 @@ ZULIPRC_PATH = BASE_DIR / "zuliprc"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+bot = None
+dp = Dispatcher()
+
 
 def get_tg_token() -> str:
     if not os.path.exists(ZULIPRC_PATH):
@@ -20,11 +23,6 @@ def get_tg_token() -> str:
     config = configparser.ConfigParser()
     config.read(ZULIPRC_PATH)
     return config.get('telegram', 'bot_token')
-
-
-BOT_TOKEN = get_tg_token()
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
 
 
 def get_main_keyboard():
@@ -48,7 +46,6 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text == "📋 Мой статус")
 async def check_status(message: types.Message):
     tg_id = str(message.from_user.id)
-
     associated_zulip_id = database.get_zulip_id_by_tg(tg_id)
 
     if associated_zulip_id:
@@ -107,9 +104,21 @@ async def unregister_user(message: types.Message):
 
 
 async def main():
-    # на всякий случай инициализирую БД и тут (если Бот запущен раньше моста)
+    global bot
+
     database.init_db()
-    print("Пользовательский бот (SQLite) запущен...")
+
+    try:
+        bot_token = get_tg_token()
+    except Exception as e:
+        logging.error(e)
+        return
+
+    bot = Bot(token=bot_token)
+
+    print("Пользовательский бот (SQLite) успешно запущен...")
+
+    # очищаю очередь старых сообщений и запускаю пуллинг
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 

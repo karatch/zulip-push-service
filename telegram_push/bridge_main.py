@@ -32,7 +32,7 @@ class ZulipTelegramBridge:
         config.read(ZULIPRC_PATH)
 
         self.stream_name = config.get('ntfy', 'stream')
-        self.tg_token = config.get('telegram_push', 'bot_token')
+        self.tg_token = config.get('telegram', 'bot_token')
 
     async def send_telegram_push(self, tg_chat_id: int, topic: str, sender_name: str, message_content: str) -> None:
         text = (
@@ -102,7 +102,7 @@ class ZulipTelegramBridge:
     async def main(self):
         self.loop = asyncio.get_running_loop()
 
-        # Автоинициализация базы данных при старте
+        # ициализация базы данных при старте
         database.init_db()
 
         try:
