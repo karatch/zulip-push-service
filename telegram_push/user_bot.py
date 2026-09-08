@@ -1,6 +1,7 @@
 import os
 import logging
 import configparser
+import asyncio
 from pathlib import Path
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -13,7 +14,6 @@ ZULIPRC_PATH = BASE_DIR / "zuliprc"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-bot = None
 dp = Dispatcher()
 
 
@@ -104,8 +104,6 @@ async def unregister_user(message: types.Message):
 
 
 async def main():
-    global bot
-
     database.init_db()
 
     try:
@@ -124,6 +122,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(main())

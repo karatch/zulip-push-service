@@ -41,7 +41,7 @@ class ZulipTelegramBridge:
             f"<b>От:</b> {sender_name}\n\n"
             f"{message_content}"
         )
-        url = f"https://telegram.org{self.tg_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
         payload = {
             "chat_id": tg_chat_id,
             "text": text,
@@ -82,8 +82,6 @@ class ZulipTelegramBridge:
         for user_id in subscribers:
             if user_id == sender_id:
                 continue
-
-                # ИСПРАВЛЕНО: Быстрый запрос в SQLite вместо чтения файла
             tg_id = database.get_tg_id_by_zulip(str(user_id))
             if tg_id:
                 asyncio.run_coroutine_threadsafe(
@@ -101,8 +99,6 @@ class ZulipTelegramBridge:
 
     async def main(self):
         self.loop = asyncio.get_running_loop()
-
-        # ициализация базы данных при старте
         database.init_db()
 
         try:
