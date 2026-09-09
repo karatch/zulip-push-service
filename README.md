@@ -1,39 +1,31 @@
-# zulip-push-service
+## Архитектура приложения
 
-### Архитектура приложения
+```text
+       +--------------------------------------------+
 
-```mermaid
-graph TD
-    %% Стилизация компонентов
-    classDef db fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef service fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef api fill:#f96,stroke:#333,stroke-width:2px;
+       |             База данных (SQLite)           |
+       |     Таблица: users (zulip_id <-> tg_id)    |
+       +---------------------+----------------------+
+                             |
+         +-------------------+-------------------+
 
-    %% Определение узлов
-    DB[(База данных SQLite<br>bridge.db)]:::db
-    
-    BRIDGE[Компонент 1:<br>Скрипт МОСТА<br>Bridge Service]:::service
-    BOT[Компонент 2:<br>Бот интеграции<br>Telegram Bot]:::service
-    
-    ZULIP_API[API Zulip<br>Сервер Zulip]:::api
-    TG_API[Bot API TG<br>api.telegram.org]:::api
+         |                                       |
+         v                                       v
++-----------------+                     +-----------------+
 
-    %% Связи компонентов
-    BRIDGE -->|1. Запрос tg_id| DB
-    BOT -->|Запись / Удаление привязок| DB
-    
-    ZULIP_API -->|2. Поток событий<br>Long Polling| BRIDGE
-    BRIDGE -->|3. Отправка пуша<br>HTML / HTML-escape| TG_API
+|   Компонент 1   |                     |   Компонент 2   |
+|   Скрипт МОСТА  |                     |  Бот интеграции |
+| (Bridge Service)|                     |  (Telegram Bot) |
++--------+--------+                     +--------+--------+
 
-    %% Расположение подзаголовков (опционально)
-    subgraph Синхронизация данных
-        DB
-    end
-    subgraph Фоновые сервисы Linux
-        BRIDGE
-        BOT
-    end
+         |                                       |
+   (Long Polling)                         (aiogram Polling)
+
+         |                                       |
+         v                                       v
++-----------------+                     +-----------------+
+
+|   API Zulip     |                     |   Bot API TG    |
+|  (Сервер Zulip) |                     | (api.telegram.org)
++-----------------+                     +-----------------+
 ```
-
-
-
