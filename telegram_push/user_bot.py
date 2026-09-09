@@ -4,7 +4,9 @@ import configparser
 import asyncio
 from pathlib import Path
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 import database
@@ -15,6 +17,11 @@ ZULIPRC_PATH = BASE_DIR / "zuliprc"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 dp = Dispatcher()
+
+
+# --- FSM (Finite State Machine) ---
+class Registration(StatesGroup):
+    waiting_for_zulip_id = State()
 
 
 def get_tg_token() -> str:
@@ -34,11 +41,27 @@ def get_main_keyboard():
     return builder.as_markup(resize_keyboard=True)
 
 
+def get_cancel_keyboard():
+    builder = ReplyKeyboardBuilder()
+    builder.add(types.KeyboardButton(text="🚫 Отмена"))
+    return builder.as_markup(resize_keyboard=True)
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer(
         f"Привет, {message.from_user.full_name}! 👋\n"
         f"Я бот-уведомитель. Настроим интеграцию с Zulip?",
+        reply_markup=get_main_keyboard()
+    )
+
+
+# Хэндлер отмены
+@dp.message(StateFilter(Registration.waiting_for_zulip_id), F.text == "🚫 Отмена")
+async def cancel_registration(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "Регистрация отменена.",
         reply_markup=get_main_keyboard()
     )
 
@@ -62,23 +85,28 @@ async def check_status(message: types.Message):
         )
 
 
+# Шаг 1 FSM: Пользователь нажал на кнопку привязки
 @dp.message(F.text == "🔐 Привязать Zulip ID")
-async def ask_for_id(message: types.Message):
+async def ask_for_id(message: types.Message, state: FSMContext):
+    await state.set_state(Registration.waiting_for_zulip_id)
     await message.answer(
-        "Чтобы выполнить привязку, отправьте команду `/register` и ваш ID.\n\n"
-        "👉 Пример:\n<code>/register 1042</code>",
-        parse_mode="HTML"
+        "Пожалуйста, **введите ваш Zulip ID** (только цифры):",
+        reply_markup=get_cancel_keyboard()  # Меняем меню на кнопку "Отмена"
     )
 
 
-@dp.message(Command("register"))
-async def register_user(message: types.Message):
-    args = message.text.split()
-    if len(args) < 2 or not args[1].isdigit():
-        await message.answer("❌ Ошибка! Укажите числовой ID.\nПример: <code>/register 1042</code>", parse_mode="HTML")
+# Шаг 2 FSM: Перехватываем ввод ID
+@dp.message(Registration.waiting_for_zulip_id)
+async def process_zulip_id(message: types.Message, state: FSMContext):
+    zulip_id = message.text.strip()
+
+    if not zulip_id.isdigit():
+        await message.answer(
+            "❌ Ошибка! ID должен состоять только из цифр.\n"
+            "Попробуйте еще раз или нажмите «🚫 Отмена»."
+        )
         return
 
-    zulip_id = args[1]
     tg_id = str(message.from_user.id)
 
     try:
@@ -86,11 +114,17 @@ async def register_user(message: types.Message):
         await message.answer(
             f"🎉 <b>Успешно сохранено в БД!</b>\n"
             f"Zulip ID <code>{zulip_id}</code> успешно привязан.",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard()  # Возвращаем главное меню
         )
+        await state.clear()  # Сценарий завершен, очищаем память FSM
     except Exception as e:
         logging.error(f"Ошибка БД: {e}")
-        await message.answer("❌ Ошибка при записи в базу данных.")
+        await message.answer(
+            "❌ Ошибка при записи в базу данных. Попробуйте позже.",
+            reply_markup=get_main_keyboard()
+        )
+        await state.clear()
 
 
 @dp.message(F.text == "❌ Отвязать аккаунт")
@@ -116,7 +150,6 @@ async def main():
 
     print("Пользовательский бот (SQLite) успешно запущен...")
 
-    # очищаю очередь старых сообщений и запускаю пуллинг
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
