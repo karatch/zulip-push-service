@@ -2,6 +2,7 @@ import asyncio
 import os
 import configparser
 import logging
+import html  # экранирование HTML-тегов
 from pathlib import Path
 import aiohttp
 import zulip
@@ -35,11 +36,17 @@ class ZulipTelegramBridge:
         self.tg_token = config.get('telegram', 'bot_token')
 
     async def send_telegram_push(self, tg_chat_id: int, topic: str, sender_name: str, message_content: str) -> None:
+        # экранируем спецсимволы (<, >, &), чтобы они не ломали parse_mode="HTML"
+        safe_stream = html.escape(self.stream_name)
+        safe_topic = html.escape(topic)
+        safe_sender = html.escape(sender_name)
+        safe_content = html.escape(message_content)
+
         text = (
-            f"🔔 <b>Новое сообщение в Zulip [{self.stream_name}]</b>\n"
-            f"<b>Тема:</b> {topic}\n"
-            f"<b>От:</b> {sender_name}\n\n"
-            f"{message_content}"
+            f"🔔 <b>Новое сообщение в Zulip [{safe_stream}]</b>\n"
+            f"<b>Тема:</b> {safe_topic}\n"
+            f"<b>От:</b> {safe_sender}\n\n"
+            f"{safe_content}"
         )
         url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
         payload = {
@@ -54,7 +61,7 @@ class ZulipTelegramBridge:
                 async with self.session.post(url, json=payload, timeout=5) as response:
                     if response.status != 200:
                         res_text = await response.text()
-                        logging.error(f"[Telegram] Ошибка API: {res_text}")
+                        logging.error(f"[Telegram] Ошибка API (Статус {response.status}): {res_text}")
             except Exception as e:
                 logging.error(f"[Telegram] Исключение при отправке: {e}")
 
@@ -84,9 +91,8 @@ class ZulipTelegramBridge:
                 continue
             tg_id = database.get_tg_id_by_zulip(str(user_id))
             if tg_id:
-                asyncio.run_coroutine_threadsafe(
-                    self.send_telegram_push(int(tg_id), topic, sender_name, content),
-                    self.loop
+                self.loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self.send_telegram_push(int(tg_id), topic, sender_name, content))
                 )
 
     def start_zulip_listener(self):
@@ -116,7 +122,6 @@ class ZulipTelegramBridge:
 
         async with aiohttp.ClientSession() as session:
             self.session = session
-            # Блокирующий поток для Zulip
             await self.loop.run_in_executor(None, self.start_zulip_listener)
 
 
