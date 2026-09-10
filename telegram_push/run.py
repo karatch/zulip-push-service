@@ -6,6 +6,7 @@ import logging
 import sys
 import aiohttp
 from aiogram import Bot
+from pathlib import Path
 
 import database
 from bot import dp
@@ -55,19 +56,24 @@ async def main():
         return
 
     logging.info("[Main] Инициализация объектов Bot и ZulipTelegramBridge...")
+
     bot = Bot(token=config["token"])
     bridge = ZulipTelegramBridge(stream_name=config["stream"], tg_token=config["token"], loop=loop,
                                  zuliprc_path=ZULIPRC_PATH)
 
-    async with aiohttp.ClientSession() as session:
+    try:
         logging.info("[Main] Сброс накопившихся обновлений Telegram (delete_webhook)...")
         await bot.delete_webhook(drop_pending_updates=True)
 
-        logging.info("[Main] Запуск параллельных процессов: polling бота и bridge...")
-        await asyncio.gather(
-            dp.start_polling(bot),
-            bridge.start(session)
-        )
+        async with aiohttp.ClientSession() as session:
+            logging.info("[Main] Запуск параллельных процессов: polling бота и bridge...")
+            await asyncio.gather(
+                dp.start_polling(bot),
+                bridge.start(session)
+            )
+    finally:
+        logging.info("[Main] Закрытие сессии бота Telegram...")
+        await bot.session.close()
 
 
 if __name__ == "__main__":

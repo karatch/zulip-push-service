@@ -33,7 +33,7 @@ class ZulipTelegramBridge:
             f"<b>От:</b> {safe_sender}\n\n"
             f"{safe_content}"
         )
-        url = f"https://telegram.org{self.tg_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
         payload = {
             "chat_id": tg_chat_id,
             "text": text,
@@ -46,6 +46,8 @@ class ZulipTelegramBridge:
                 async with self.session.post(url, json=payload, timeout=5) as response:
                     if response.status == 200:
                         logging.info(f"[Bridge API] Пуш успешно доставлен адресату {tg_chat_id}")
+                        # res_text = await response.text()
+                        # logging.info(f"[DEBUG API] Ответ от серверов Telegram: {res_text}")
                     else:
                         res_text = await response.text()
                         logging.error(
