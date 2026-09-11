@@ -14,7 +14,6 @@ DB_PATH = BASE_DIR / "bridge.db"
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Вспомогательный метод для безопасного подключения с таймаутом."""
     # Таймаут в 10 секунд не даст транзакции упасть, если диск на секунду занят
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
 

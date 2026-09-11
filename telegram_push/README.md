@@ -31,26 +31,20 @@
 ```
 
 
-------------------------------
-Использование системного менеджера systemd для запуска приложения.
+## Руководство (Telegram)
 
-------------------------------
-Чтобы успешно собрать асинхронное приложение на aiogram 3.x с помощью PyInstaller и развернуть его как службу, нужно учесть, что фреймворк использует динамические импорты (особенно механизмы фильтров magic-filter и контекстные переменные). Если их не указать, бинарник упадет сразу после запуска.
-Ниже приведена точная команда для сборки и пошаговый гайд по развертыванию.
+### 1. Сборка бинарного файла через PyInstaller
 
-------------------------------
-## Шаг 1: Установка PyInstaller и сборка
-Компилировать проект нужно строго на той же операционной системе и архитектуре, где он будет работать (т.е. на целевом Linux-сервере или в идентичной виртуалке/Docker-контейнере).
+Приложение компилируется в один исполняемый файл, который содержит интерпретатор Python и все необходимые зависимости. Сборку необходимо проводить **строго на той же операционной системе** (и архитектуре), где планируется запуск приложения (например, на целевом Linux-сервере).
 
-   1. Активируйте ваше виртуальное окружение на сервере и установите PyInstaller:
-   
-   source venv/bin/bin/activate  # или ваш путь к venv
-   pip install pyinstaller
-   
-   2. Выполните точную команду для сборки в один файл с учетом скрытых зависимостей aiogram:
-   
-   pyinstaller --onefile \
-     --name=zulip-integration \
+1. Перейдите в каталог проекта, активируйте ваше виртуальное окружение и установите необходимые зависимости:
+   ```bash
+   pip install aiogram aiohttp zulip pyinstaller magic-filter
+   ```
+2. Выполните команду для сборки проекта в один файл с учетом скрытых импортов `aiogram`:
+   ```bash
+   pyinstaller --clean --onefile \
+     --name=tg-integration \
      --hidden-import=aiogram \
      --hidden-import=aiogram.dispatcher \
      --hidden-import=aiogram.filters \
@@ -58,120 +52,139 @@
      --hidden-import=magic_filter \
      --hidden-import=aiohttp \
      run.py
-   
-   
-Что делают эти флаги:
+   ```
+   *После успешного завершения сборки готовый бинарник появится в директории `dist/tg-integration`.*
 
-* --onefile — собирает всё приложение, включая интерпретатор Python и библиотеки, в один единственный файл.
-* --name — задает имя итоговому файлу (вместо дефолтного run получится красивое zulip-integration).
-* --hidden-import — принудительно заставляет PyInstaller упаковать модули, которые aiogram и magic_filter загружают динамически во время работы программы.
+---
 
-После завершения сборки в папке проекта появится директория dist/, а внутри нее — готовый бинарный файл zulip-integration.
-------------------------------
-## Шаг 2: Перенос и подготовка бинарника
+### 2. Структура конфигурационного файла `zuliprc`
 
-   1. Перенесите созданный файл в постоянную директорию (например, /home/user/zulip_bridge/):
-   
-   cp dist/zulip-integration /home/user/zulip_bridge/
-   
-   2. Убедитесь, что рядом с бинарником лежат файлы конфигурации zuliprc и база данных bridge.db.
-   3. Сделайте файл исполняемым:
-   
-   chmod +x /home/user/zulip_bridge/zulip-integration
-   
-   4. Сделайте тестовый запуск вручную, чтобы убедиться в отсутствии ошибок импорта:
-   
-   /home/user/zulip_bridge/zulip-integration
-   
-   (Если всё запустилось без ошибок, прервите выполнение через Ctrl+C).
+Файл конфигурации должен находиться в той же директории, что и исполняемый файл. Он содержит доступы к API серверов Zulip и Telegram.
 
-------------------------------
-## Шаг 3: Создание системной службы systemd
+Создайте файл `zuliprc` со следующим содержимым:
 
-   1. Создайте конфигурационный файл службы:
-   
+```ini
+[api]
+# Параметры подключения к вашему корпоративному серверу Zulip
+email = bot-name@your-domain.ru
+key = abc123xyz456secretkeyzulip
+site = https://your-domain.ru
+
+[ntfy]
+# Имя канала (Stream) в Zulip, сообщения из которого нужно дублировать
+stream = Разработка
+
+[telegram]
+# Токен бота, полученный от @BotFather в Telegram
+bot_token = 1234567890:ABCdefGhIJKlmNoPQRsTUVwXyZ
+```
+
+> **Важно:** Ограничьте права доступа к файлу конфигурации в Linux, чтобы сторонние пользователи не могли прочитать секретные ключи и токены: 
+> ```bash
+> chmod 600 zuliprc
+> ```
+
+---
+
+### 3. Развертывание службы через systemd
+
+1. Создайте рабочую директорию проекта и перенесите туда файлы:
+   ```bash
+   mkdir -p /home/user/zulip_bridge
+   cp dist/tg-integration /home/user/zulip_bridge/
+   # Перенесите файл zuliprc в эту же папку
+   ```
+2. Дайте бинарному файлу права на исполнение:
+   ```bash
+   chmod +x /home/user/zulip_bridge/tg-integration
+   ```
+3. Создайте конфигурационный файл службы:
+   ```bash
    sudo nano /etc/systemd/system/zulip-integration.service
-   
-   2. Вставьте в него следующую конфигурацию (замените user на имя вашего пользователя в Linux, а пути — на ваши реальные):
-   
+   ```
+4. Вставьте в него следующую конфигурацию (замените `user` и пути на ваши реальные):
+   ```ini
    [Unit]
-   Description=Zulip Telegram Integration Service (Compiled Binary)
+   Description=Zulip to Telegram Integration Service
    After=network.target
-   
+
    [Service]
    Type=simple
    User=user
    WorkingDirectory=/home/user/zulip_bridge
-   
-   # Запуск скомпилированного бинарника напрямую без вызова python
-   ExecStart=/home/user/zulip_bridge/zulip-integration
-   
-   # Перезапуск в случае падения
+   ExecStart=/home/user/zulip_bridge/tg-integration
    Restart=always
    RestartSec=5
-   
-   # Направление логов в системный журнал
    StandardOutput=journal
    StandardError=journal
-   
+
    [Install]
    WantedBy=multi-user.target
-   
-   3. Сохраните файл (Ctrl+O, Enter) и выйдете из редактора (Ctrl+X).
+   ```
+5. Зарегистрируйте и запустите службу:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable zulip-integration.service
+   sudo systemctl start zulip-integration.service
+   ```
 
-Благодаря параметру Restart=always и RestartSec=5, если в коде моста или бота произойдет 
-непредвиденное исключение (например, на секунду пропадет интернет или упадет база данных), 
-systemd подождет 5 секунд и автоматически запустит скрипт заново, обеспечивая 
-непрерывную работу интеграции.
+---
 
-------------------------------
-## Шаг 4: Активация и управление службой
-Зарегистрируйте новую службу в системе и запустите её:
+### 4. Настройка ротации и очистки логов journald
 
-# Перезагружаем менеджер конфигураций systemd
-sudo systemctl daemon-reload
-# Включаем автоматический запуск службы при старте сервера
-sudo systemctl enable zulip-integration.service
-# Запускаем службу прямо сейчас
-sudo systemctl start zulip-integration.service
+По умолчанию системный журнал `journald` может занимать значительный объем диска. Чтобы логи приложения не переполнили сервер, необходимо настроить их ротацию по размеру.
 
-## Как проверять работу:
+#### Автоматическая ротация (Рекомендуется)
+1. Откройте файл конфигурации системного журнала:
+   ```bash
+   sudo nano /etc/systemd/journald.conf
+   ```
+2. Раскомментируйте или добавьте в секцию `[Journal]` следующие параметры для жесткого ограничения логов (например, до 500 МБ):
+   ```ini
+   [Journal]
+   SystemMaxUse=500M
+   SystemMaxFileSize=50M
+   SystemKeepFree=1G
+   ```
+3. Перезапустите службу логирования для применения настроек:
+   ```bash
+   sudo systemctl restart systemd-journald
+   ```
 
-* Чтобы посмотреть текущий статус (работает/упал):
+#### Ручная очистка логов (Прямо сейчас)
+Если на сервере скопилось много старых логов и вам нужно принудительно освободить место, оставив только последние 500 МБ данных, выполните команду:
+```bash
+sudo journalctl --vacuum-size=500M
+```
 
-sudo systemctl status zulip-integration.service
+---
 
-* Чтобы смотреть живой поток логов вашего скомпилированного приложения:
+### 5. Полезные команды для администрирования
 
-sudo journalctl -u zulip-integration.service -f
+* **Просмотр логов в реальном времени ("живой поток"):**
+  ```bash
+  sudo journalctl -u zulip-integration.service -f
+  ```
+* **Проверить текущий статус работы процесса (Active/Running):**
+  ```bash
+  sudo systemctl status zulip-integration.service
+  ```
+* **Перезапустить сервис (например, после изменения `zuliprc`):**
+  ```bash
+  sudo systemctl restart zulip-integration.service
+  ```
+* **Остановить службу (выключить процесс прямо сейчас):**
+  ```bash
+  sudo systemctl stop zulip-integration.service
+  ```
+* **Отключить автозапуск (дезактивировать запуск вместе с ОС):**
+  ```bash
+  sudo systemctl disable zulip-integration.service
+  ```
+  *Примечание: Команда `disable` не останавливает уже запущенный процесс, она лишь отменяет его автоматический старт при следующей перезагрузке сервера.*
+* **Полное отключение (и остановить, и убрать из автозапуска):**
+  ```bash
+  sudo systemctl stop zulip-integration.service && sudo systemctl disable zulip-integration.service
+  ```
 
-
-## Полезные команды для управления
-Стандартные команды для управления фоновыми процессами:
-
-* Проверить статус работы (активен/упал):
-
-sudo systemctl status zulip-telegram.service
-
-* Перезапустить вручную (например, после обновления кода):
-
-sudo systemctl restart zulip-telegram.service
-
-* Остановить сервис:
-
-sudo systemctl stop zulip-telegram.service
-
-
-------------------------------
-## Просмотр логов (живой поток)
-Если бот не запускается или вы хотите посмотреть, какие ошибки сыплются в консоль, 
-используйте утилиту journalctl:
-
-* Посмотреть последние логи бота:
-
-sudo journalctl -u zulip-bot.service -n 50 --no-pager
-
-* Смотреть логи моста в реальном времени (вывод будет обновляться сам при появлении новых строк):
-
-sudo journalctl -u zulip-bridge.service -f
 
