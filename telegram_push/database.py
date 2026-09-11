@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
@@ -12,10 +13,23 @@ else:
 DB_PATH = BASE_DIR / "bridge.db"
 
 
+def _get_connection() -> sqlite3.Connection:
+    """Вспомогательный метод для безопасного подключения с таймаутом."""
+    # Таймаут в 10 секунд не даст транзакции упасть, если диск на секунду занят
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except sqlite3.Error as e:
+        logging.warning(f"[DB] Не удалось активировать режим WAL: {e}")
+
+    return conn
+
+
 def init_db() -> None:
     logging.info(f"[DB] Инициализация базы данных. Путь к файлу: {DB_PATH}")
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with _get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -36,7 +50,7 @@ def add_user(zulip_id: str, tg_id: str) -> None:
     logging.info(f"[DB] Попытка записи привязки: Zulip ID '{z_id}' <-> TG ID '{t_id}'")
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with _get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO users (zulip_id, tg_id) 
@@ -55,7 +69,7 @@ def get_tg_id_by_zulip(zulip_id: str) -> Optional[str]:
     logging.debug(f"[DB] Запрос TG ID для Zulip ID '{z_id}'...")
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with _get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT tg_id FROM users WHERE zulip_id = ?", (z_id,))
             row = cursor.fetchone()
@@ -75,7 +89,7 @@ def get_zulip_id_by_tg(tg_id: str) -> Optional[str]:
     t_id = str(tg_id)
     logging.debug(f"[DB] Запрос Zulip ID для TG ID '{t_id}'...")
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with _get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT zulip_id FROM users WHERE tg_id = ?", (t_id,))
             row = cursor.fetchone()
@@ -95,7 +109,7 @@ def remove_user_by_tg(tg_id: str) -> bool:
     t_id = str(tg_id)
     logging.info(f"[DB] Попытка удаления привязок для TG ID '{t_id}'...")
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with _get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM users WHERE tg_id = ?", (t_id,))
             conn.commit()
