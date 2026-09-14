@@ -66,7 +66,6 @@ async def main():
         logging.info("[Main] Сброс накопившихся обновлений Telegram (delete_webhook)...")
         await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=5.0)
 
-        # ДОБАВЛЕНО: Установка синей кнопки "Меню" в Telegram
         logging.info("[Main] Настройка меню команд бота...")
         main_commands = [
             BotCommand(command="start", description="Запустить бота / Показать меню"),

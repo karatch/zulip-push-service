@@ -10,12 +10,10 @@ import database
 dp = Dispatcher()
 
 
-# Состояние для пошаговой регистрации
 class Registration(StatesGroup):
     waiting_for_zulip_id = State()
 
 
-# Главное reply-меню для пользователя
 def get_main_keyboard():
     builder = ReplyKeyboardBuilder()
     builder.add(types.KeyboardButton(text="🔐 Привязать Zulip ID"))
@@ -26,14 +24,12 @@ def get_main_keyboard():
     return builder.as_markup(resize_keyboard=True)
 
 
-# Клавиатура отмены в режиме ввода ID
 def get_cancel_keyboard():
     builder = ReplyKeyboardBuilder()
     builder.add(types.KeyboardButton(text="🚫 Отмена"))
     return builder.as_markup(resize_keyboard=True)
 
 
-# Текст подробной справки
 def get_help_text():
     return (
         "ℹ️ <b>Как работают Push-уведомления:</b>\n"
