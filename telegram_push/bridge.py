@@ -132,14 +132,36 @@ class ZulipTelegramBridge:
 
     async def start(self, session):
         self.session = session
-        logging.info("[Bridge] Авторизация в Zulip Client...")
-        try:
-            self.zulip_client = zulip.Client(config_file=str(self.zuliprc_path))
-            self.bot_email = self.zulip_client.email
-            logging.info(f"[Bridge] Успешная авторизация. Email бота в Zulip: {self.bot_email}")
-        except Exception as e:
-            logging.critical(f"[Bridge] Ошибка авторизации в Zulip: {e}")
-            return
 
-        logging.info("[Bridge] Запуск слушателя событий Zulip в отдельном системном потоке Executor...")
-        await self.loop.run_in_executor(None, self.start_zulip_listener)
+        # Бесконечный цикл попыток подключения к Zulip при запуске
+        while True:
+            logging.info("[Bridge] Попытка авторизации в Zulip Client...")
+            try:
+                # запускаю синхронный конструктор клиента в executor с таймаутом, чтобы не вешать event loop
+                self.zulip_client = await asyncio.wait_for(
+                    self.loop.run_in_executor(None, lambda: zulip.Client(config_file=str(self.zuliprc_path))),
+                    timeout=10.0
+                )
+                self.bot_email = self.zulip_client.email
+                logging.info(f"[Bridge] Успешная авторизация. Email бота в Zulip: {self.bot_email}")
+                break
+            except (asyncio.TimeoutError, Exception) as e:
+                logging.error(f"[Bridge] Ошибка или таймаут авторизации в Zulip: {e}. Повтор через 15 секунд...")
+                await asyncio.sleep(15)
+
+        # запуск слушателя в цикле перезапуска на случай падения сервера Zulip в процессе работы
+        async def safe_listener_loop():
+            while True:
+                logging.info("[Bridge] Запуск слушателя событий Zulip в отдельном системном потоке Executor...")
+                try:
+                    # запуск блокирующего метода call_on_each_event
+                    await self.loop.run_in_executor(None, self.start_zulip_listener)
+                except Exception as e:
+                    logging.error(f"[Bridge] Поток слушателя Zulip аварийно завершился: {e}")
+
+                logging.info("[Bridge] Соединение с Zulip потеряно. Перезапуск слушателя через 15 секунд...")
+                await asyncio.sleep(15)
+
+        # запускаю фоновую задачу слушателя, чтобы она не блокировала asyncio.gather в main()
+        asyncio.create_task(safe_listener_loop())
+

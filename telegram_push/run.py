@@ -27,6 +27,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
+
 def load_config():
     logging.info(f"[Main] Чтение конфигурационного файла: {ZULIPRC_PATH}")
     if not os.path.exists(ZULIPRC_PATH):
@@ -35,10 +36,9 @@ def load_config():
     config = configparser.ConfigParser()
     config.read(ZULIPRC_PATH)
     try:
-        stream = config.get('ntfy', 'stream')
         token = config.get('telegram', 'bot_token')
-        logging.info(f"[Main] Конфигурация успешно загружена. Целевой стрим Zulip: '{stream}'")
-        return {"stream": stream, "token": token}
+        logging.info("[Main] Конфигурация успешно загружена. Бот будет отправлять пуши по всем доступным стримам.")
+        return {"token": token}
     except Exception as e:
         raise KeyError(f"Ошибка чтения секций в zuliprc: {e}")
 
@@ -58,13 +58,16 @@ async def main():
     logging.info("[Main] Инициализация объектов Bot и ZulipTelegramBridge...")
 
     bot = Bot(token=config["token"])
-    bridge = ZulipTelegramBridge(stream_name=config["stream"], tg_token=config["token"], loop=loop,
-                                 zuliprc_path=ZULIPRC_PATH)
+    bridge = ZulipTelegramBridge(tg_token=config["token"], loop=loop, zuliprc_path=ZULIPRC_PATH)
 
+    # защита от падения при блокировке Telegram
     try:
         logging.info("[Main] Сброс накопившихся обновлений Telegram (delete_webhook)...")
-        await bot.delete_webhook(drop_pending_updates=True)
+        await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=5.0)
+    except (asyncio.TimeoutError, Exception) as e:
+        logging.warning(f"[Main] Не удалось связаться с Telegram API для сброса вебхука: {e}. Продолжаем запуск...")
 
+    try:
         async with aiohttp.ClientSession() as session:
             logging.info("[Main] Запуск параллельных процессов: polling бота и bridge...")
             await asyncio.gather(
@@ -73,7 +76,11 @@ async def main():
             )
     finally:
         logging.info("[Main] Закрытие сессии бота Telegram...")
-        await bot.session.close()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+
 
 
 if __name__ == "__main__":
