@@ -7,6 +7,8 @@ import sys
 import aiohttp
 from aiogram import Bot
 from pathlib import Path
+from aiogram.types import BotCommand
+
 
 import database
 from bot import dp
@@ -59,12 +61,25 @@ async def main():
     bot = Bot(token=config["token"])
     bridge = ZulipTelegramBridge(tg_token=config["token"], loop=loop, zuliprc_path=ZULIPRC_PATH)
 
-    # защита от падения при блокировке Telegram
+    # Защита от падения при блокировке Telegram
     try:
         logging.info("[Main] Сброс накопившихся обновлений Telegram (delete_webhook)...")
         await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=5.0)
+
+        # ДОБАВЛЕНО: Установка синей кнопки "Меню" в Telegram
+        logging.info("[Main] Настройка меню команд бота...")
+        main_commands = [
+            BotCommand(command="start", description="Запустить бота / Показать меню"),
+            BotCommand(command="bind", description="Привязать Zulip ID"),
+            BotCommand(command="status", description="Проверить статус подписки"),
+            BotCommand(command="unbind", description="Отвязать аккаунт и выключить пуши"),
+            BotCommand(command="help", description="Показать подробную инструкцию")
+        ]
+        await bot.set_my_commands(main_commands)
+
     except (asyncio.TimeoutError, Exception) as e:
-        logging.warning(f"[Main] Не удалось связаться с Telegram API для сброса вебхука: {e}. Продолжаем запуск...")
+        logging.warning(
+            f"[Main] Не удалось связаться с Telegram API для настройки команд/вебхука: {e}. Продолжаем запуск...")
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -79,7 +94,6 @@ async def main():
             await bot.session.close()
         except Exception:
             pass
-
 
 
 if __name__ == "__main__":
