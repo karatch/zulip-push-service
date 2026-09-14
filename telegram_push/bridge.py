@@ -7,7 +7,7 @@ from pathlib import Path
 import database
 
 
-# фоновый мост Zulip -> Telegram
+# Фоновый мост Zulip -> Telegram (Исправленный под вызов get_subscribers)
 
 class ZulipTelegramBridge:
     def __init__(self, tg_token: str, loop: asyncio.AbstractEventLoop, zuliprc_path: Path):
@@ -34,7 +34,7 @@ class ZulipTelegramBridge:
             f"<b>От:</b> {safe_sender}\n\n"
             f"{safe_content}"
         )
-        url = f"https://telegram.org{self.tg_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
         payload = {
             "chat_id": tg_chat_id,
             "text": text,
@@ -54,14 +54,22 @@ class ZulipTelegramBridge:
             except Exception as e:
                 logging.error(f"[Bridge API] Исключение сети при отправке в чат {tg_chat_id}: {e}")
 
-    # принимает stream_id или stream_name динамически
-    def get_stream_subscribers(self, stream_id: int) -> list:
+    # принимает stream_name, так как этого требует библиотека
+    def get_stream_subscribers(self, stream_name: str, stream_id: int = None) -> list:
         try:
-            logging.debug(f"[Bridge] Запрос списка подписчиков для стрима с ID {stream_id}...")
-            result = self.zulip_client.get_subscribers(stream_id=stream_id)
+            logging.debug(f"[Bridge] Запрос списка подписчиков для стрима '{stream_name}'...")
+
+            # Основная попытка запроса по имени стрима
+            result = self.zulip_client.get_subscribers(stream=stream_name)
+
+            # Резервный вариант, если API требует ID
+            if result.get('result') != 'success' and stream_id is not None:
+                logging.warning(f"[Bridge] Запрос по имени не удался, пробуем по stream_id={stream_id}...")
+                result = self.zulip_client.get_subscribers(stream_id=stream_id)
+
             if result.get('result') == 'success':
                 subscribers = result.get('subscribers', [])
-                logging.info(f"[Bridge] В стриме ID {stream_id} найдено {len(subscribers)} подписчиков.")
+                logging.info(f"[Bridge] В стриме '{stream_name}' найдено {len(subscribers)} подписчиков.")
                 return subscribers
             else:
                 logging.error(f"[Bridge] Ошибка Zulip API при получении подписчиков: {result}")
@@ -79,7 +87,6 @@ class ZulipTelegramBridge:
             return
 
         if msg['type'] == 'private':
-            logging.debug("[Bridge] Пропущено приватное сообщение.")
             return
 
         sender_id = msg['sender_id']
@@ -87,57 +94,64 @@ class ZulipTelegramBridge:
         topic = msg.get('subject', 'Без темы')
         content = msg['content']
 
-        # получаю динамическое имя и ID стрима из самого сообщения
         stream_name = msg.get('display_recipient', 'Неизвестный стрим')
         stream_id = msg.get('stream_id')
 
-        if not stream_id:
-            logging.warning("[Bridge] Перехвачено сообщение без stream_id, пропускаем.")
+        if not isinstance(stream_name, str):
+            logging.warning("[Bridge] Не удалось определить имя стрима, пропускаем событие.")
             return
 
-        logging.info(
-            f"[Bridge] Перехвачено сообщение в стриме [{stream_name}]! От: {sender_name}, Тема: '{topic}'")
+        logging.info(f"--- [DEBUG START] ---")
+        logging.info(f"[Bridge] Перехвачено сообщение из [{stream_name}] (ID: {stream_id})")
+        logging.info(f"[Bridge] Автор сообщения Zulip ID: {sender_id} ({sender_name})")
 
-        subscribers = self.get_stream_subscribers(stream_id)
+        subscribers = self.get_stream_subscribers(stream_name, stream_id)
+        logging.info(
+            f"[DEBUG] Список подписчиков от Zulip API: {subscribers} (Тип элементов: {[type(x) for x in subscribers]})")
+
         sent_counter = 0
 
         for user_id in subscribers:
             if user_id == sender_id:
+                logging.info(f"[DEBUG] Пропускаем Zulip ID {user_id}, так как это сам автор сообщения.")
                 continue
+
+            logging.info(f"[DEBUG] Ищем в БД Телеграм для Zulip ID: '{user_id}'")
             tg_id = database.get_tg_id_by_zulip(str(user_id))
+
             if tg_id:
                 sent_counter += 1
-                logging.info(
-                    f"[Bridge] Найдено совпадение в БД: Zulip ID {user_id} -> TG ID {tg_id}. Планируем отправку.")
-
-                # передаю stream_name в send_telegram_push
+                logging.info(f"[Bridge] Найдено совпадение! Zulip ID {user_id} -> TG ID {tg_id}")
                 self.loop.call_soon_threadsafe(
                     lambda t=tg_id, sn=stream_name: asyncio.create_task(
                         self.send_telegram_push(int(t), sn, topic, sender_name, content)
                     )
                 )
-        logging.info(
-            f"[Bridge] Обработка события завершена. Потенциальных получателей пушей запланировано: {sent_counter}")
+            else:
+                logging.warning(f"[DEBUG] В БД нет записи для Zulip ID '{user_id}'")
+
+        logging.info(f"[Bridge] Всего запланировано пушей: {sent_counter}")
+        logging.info(f"--- [DEBUG END] ---")
 
     def start_zulip_listener(self):
-        logging.info("[Bridge] Установка соединения и регистрация очереди событий Zulip для ВСЕХ стримов...")
+        logging.info("[Bridge] Установка соединения и регистрация НОВОЙ очереди событий Zulip для ВСЕХ стримов...")
         try:
-            # слушаю абсолютно все каналы
+            # флаг all_public_streams=True
+            # заставляет сервер слать администратору сообщения из ВСЕХ публичных каналов
             self.zulip_client.call_on_each_event(
                 callback=self.process_event,
-                event_types=['message']
+                event_types=['message'],
+                all_public_streams=True
             )
         except Exception as e:
             logging.critical(f"[Bridge] Критическая ошибка потока прослушивания событий Zulip: {e}")
 
+
     async def start(self, session):
         self.session = session
-
-        # Бесконечный цикл попыток подключения к Zulip при запуске
         while True:
             logging.info("[Bridge] Попытка авторизации в Zulip Client...")
             try:
-                # запускаю синхронный конструктор клиента в executor с таймаутом, чтобы не вешать event loop
                 self.zulip_client = await asyncio.wait_for(
                     self.loop.run_in_executor(None, lambda: zulip.Client(config_file=str(self.zuliprc_path))),
                     timeout=10.0
@@ -149,12 +163,10 @@ class ZulipTelegramBridge:
                 logging.error(f"[Bridge] Ошибка или таймаут авторизации в Zulip: {e}. Повтор через 15 секунд...")
                 await asyncio.sleep(15)
 
-        # запуск слушателя в цикле перезапуска на случай падения сервера Zulip в процессе работы
         async def safe_listener_loop():
             while True:
                 logging.info("[Bridge] Запуск слушателя событий Zulip в отдельном системном потоке Executor...")
                 try:
-                    # запуск блокирующего метода call_on_each_event
                     await self.loop.run_in_executor(None, self.start_zulip_listener)
                 except Exception as e:
                     logging.error(f"[Bridge] Поток слушателя Zulip аварийно завершился: {e}")
@@ -162,6 +174,4 @@ class ZulipTelegramBridge:
                 logging.info("[Bridge] Соединение с Zulip потеряно. Перезапуск слушателя через 15 секунд...")
                 await asyncio.sleep(15)
 
-        # запускаю фоновую задачу слушателя, чтобы она не блокировала asyncio.gather в main()
         asyncio.create_task(safe_listener_loop())
-

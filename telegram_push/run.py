@@ -12,7 +12,7 @@ import database
 from bot import dp
 from bridge import ZulipTelegramBridge
 
-# определение путей с учетом компиляции PyInstaller
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
@@ -20,7 +20,6 @@ else:
 
 ZULIPRC_PATH = BASE_DIR / "zuliprc"
 
-# системное логирование
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
