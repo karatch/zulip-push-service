@@ -5,6 +5,7 @@ import configparser
 import logging
 import sys
 import aiohttp
+import urllib3
 from aiogram import Bot
 from pathlib import Path
 from aiogram.types import BotCommand
@@ -13,6 +14,8 @@ from aiogram.types import BotCommand
 import database
 from bot import dp
 from bridge import ZulipTelegramBridge
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 if getattr(sys, 'frozen', False):
