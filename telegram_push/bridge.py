@@ -7,8 +7,6 @@ from pathlib import Path
 import database
 
 
-# Фоновый мост Zulip -> Telegram (Исправленный под вызов get_subscribers)
-
 class ZulipTelegramBridge:
     def __init__(self, tg_token: str, loop: asyncio.AbstractEventLoop, zuliprc_path: Path):
         self.tg_token = tg_token
