@@ -134,8 +134,8 @@ class ZulipTelegramBridge:
     def start_zulip_listener(self):
         logging.info("[Bridge] Установка соединения и регистрация НОВОЙ очереди событий Zulip для ВСЕХ стримов...")
         try:
-            # флаг all_public_streams=True
-            # заставляет сервер слать администратору сообщения из ВСЕХ публичных каналов
+            # all_public_streams=True
+            # сервер шлет администратору сообщения из ВСЕХ публичных каналов
             self.zulip_client.call_on_each_event(
                 callback=self.process_event,
                 event_types=['message'],
