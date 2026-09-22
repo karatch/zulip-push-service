@@ -1,0 +1,5 @@
+aiogram
+zulip==0.9.1
+aiohttp==3.11.11
+urllib3==2.3.0
+python-dotenv
