@@ -14,6 +14,7 @@ dp = Dispatcher()
 
 class Registration(StatesGroup):
     waiting_for_email = State()
+    # one-time password
     waiting_for_otp = State()  # ожидание ввода 4-значного кода верификации
 
 
