@@ -75,6 +75,35 @@ class ZulipTelegramBridge:
             logging.error(f"[Bridge] Исключение при получении подписчиков Zulip: {e}")
             return []
 
+    def get_user_id_by_email(self, email: str) -> dict:
+        try:
+            result = self.zulip_client.get_user_by_email(email)
+            if result.get('result') == 'success':
+                user_data = result.get('user', {})
+                return {
+                    "zulip_id": str(user_data.get('user_id')),
+                    "full_name": user_data.get('full_name')
+                }
+            return {}
+        except Exception as e:
+            logging.error(f"[Bridge API] Ошибка при поиске пользователя по email {email}: {e}")
+            return {}
+
+    def send_zulip_private_message(self, zulip_id: int, text: str) -> bool:
+        try:
+            # приватное сообщение по ID пользователя
+            request = {
+                "type": "private",
+                "to": [int(zulip_id)],
+                "content": text
+            }
+            result = self.zulip_client.send_message(request)
+            return result.get('result') == 'success'
+        except Exception as e:
+            logging.error(f"[Bridge API] Не удалось отправить приватное сообщение в Zulip для ID {zulip_id}: {e}")
+            return False
+
+
     def process_event(self, event: dict) -> None:
         if event.get('type') != 'message':
             return

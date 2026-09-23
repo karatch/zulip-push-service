@@ -89,6 +89,7 @@ async def main():
         loop=loop,
         zuliprc_path=ZULIPRC_PATH
     )
+    dp["zulip_bridge"] = bridge
 
     try:
         logging.info("[Main] Сброс накопившихся обновлений Telegram (delete_webhook)...")
