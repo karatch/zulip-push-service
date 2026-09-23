@@ -38,7 +38,7 @@ class ZulipTelegramBridge:
             f"{safe_content}\n\n"
             f"🔗 <a href='{msg_url}'>Открыть в чате Zulip</a>"
         )
-        url = f"https://telegram.org{self.tg_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
         payload = {
             "chat_id": tg_chat_id,
             "text": text,
@@ -60,7 +60,6 @@ class ZulipTelegramBridge:
 
     def get_stream_subscribers(self, stream_name: str, stream_id: int = None) -> list:
         try:
-            logging.debug(f"[Bridge] Запрос списка подписчиков для стрима '{stream_name}'...")
             result = self.zulip_client.get_subscribers(stream=stream_name)
 
             if result.get('result') != 'success' and stream_id is not None:
@@ -101,7 +100,6 @@ class ZulipTelegramBridge:
         if not isinstance(stream_name, str):
             return
 
-        logging.info(f"--- [DEBUG START] ---")
         logging.info(f"[Bridge] Перехвачено сообщение из [{stream_name}]")
 
         encoded_stream = f"{stream_id}-{stream_name.replace(' ', '.')}"
@@ -125,7 +123,6 @@ class ZulipTelegramBridge:
                 )
 
         logging.info(f"[Bridge] Всего запланировано пушей: {sent_counter}")
-        logging.info(f"--- [DEBUG END] ---")
 
     def start_zulip_listener(self):
         logging.info("[Bridge] Установка соединения и регистрация НОВОЙ очереди событий Zulip для ВСЕХ стримов...")
