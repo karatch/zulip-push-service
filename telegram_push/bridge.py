@@ -77,32 +77,49 @@ class ZulipTelegramBridge:
 
     def get_user_id_by_email(self, email: str) -> dict:
         try:
-            result = self.zulip_client.get_user_by_email(email)
+            result = self.zulip_client.get_users()
+
             if result.get('result') == 'success':
-                user_data = result.get('user', {})
-                return {
-                    "zulip_id": str(user_data.get('user_id')),
-                    "full_name": user_data.get('full_name')
-                }
+                members = result.get('members', [])
+                search_email = email.strip().lower()
+
+                for member in members:
+                    actual_email = member.get('delivery_email', '').lower()
+
+                    if actual_email == search_email:
+                        if member.get('is_active') and not member.get('is_bot'):
+                            return {
+                                "zulip_id": str(member.get('user_id')),
+                                "full_name": member.get('full_name')
+                            }
+
+                logging.warning(f"[Bridge API] Пользователь с email {email} не найден в списке участников.")
+                return {}
+
+            logging.error(f"[Bridge API] Сервер Zulip отклонил запрос get_users: {result}")
             return {}
         except Exception as e:
-            logging.error(f"[Bridge API] Ошибка при поиске пользователя по email {email}: {e}")
+            logging.error(f"[Bridge API] Исключение при поиске пользователя по email {email}: {e}")
             return {}
 
     def send_zulip_private_message(self, zulip_id: int, text: str) -> bool:
         try:
-            # приватное сообщение по ID пользователя
             request = {
                 "type": "private",
                 "to": [int(zulip_id)],
                 "content": text
             }
             result = self.zulip_client.send_message(request)
-            return result.get('result') == 'success'
-        except Exception as e:
-            logging.error(f"[Bridge API] Не удалось отправить приватное сообщение в Zulip для ID {zulip_id}: {e}")
-            return False
 
+            if result.get('result') == 'success':
+                logging.info(f"[Bridge API] OTP-код успешно отправлен в Zulip для ID {zulip_id}")
+                return True
+            else:
+                logging.error(f"[Bridge API] Сервер Zulip отклонил отправку DM для ID {zulip_id}: {result}")
+                return False
+        except Exception as e:
+            logging.error(f"[Bridge API] Исключение при отправке приватного сообщения в Zulip для ID {zulip_id}: {e}")
+            return False
 
     def process_event(self, event: dict) -> None:
         if event.get('type') != 'message':

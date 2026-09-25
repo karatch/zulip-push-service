@@ -82,7 +82,9 @@ async def main():
         return
 
     logging.info("[Main] Инициализация объектов Bot и ZulipTelegramBridge...")
-    bot = Bot(token=config["token"])
+
+    bot = Bot(token=config["tg_token"])
+
     bridge = ZulipTelegramBridge(
         tg_token=config["tg_token"],
         zulip_site=config["zulip_site"],
