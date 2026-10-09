@@ -44,13 +44,11 @@ def load_config():
     config.read(ZULIPRC_PATH)
     try:
         zulip_site = config.get('api', 'site').rstrip('/')
-
         tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
         if not tg_token:
             raise ValueError("Переменная TELEGRAM_BOT_TOKEN не найдена в файле .env!")
 
         logging.info("[Main] Конфигурация успешно загружена.")
-
         return {"tg_token": tg_token, "zulip_site": zulip_site}
     except Exception as e:
         raise KeyError(f"Ошибка чтения конфигурационных параметров: {e}")
@@ -60,10 +58,8 @@ async def main():
     stop_event = asyncio.Event()
 
     def handle_exit_signal():
-        print("\n[Система] Сервис остановлен пользователем через Ctrl+C.")
+        logging.info("[Система] Получен сигнал остановки. Ожидаем завершения фоновых задач...")
         stop_event.set()
-        # убиваем процесс на уровне ядра ОС
-        os._exit(0)
 
     loop = asyncio.get_running_loop()
     try:
@@ -82,9 +78,7 @@ async def main():
         return
 
     logging.info("[Main] Инициализация объектов Bot и ZulipTelegramBridge...")
-
     bot = Bot(token=config["tg_token"])
-
     bridge = ZulipTelegramBridge(
         tg_token=config["tg_token"],
         zulip_site=config["zulip_site"],
@@ -94,10 +88,7 @@ async def main():
     dp["zulip_bridge"] = bridge
 
     try:
-        logging.info("[Main] Сброс накопившихся обновлений Telegram (delete_webhook)...")
         await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=True), timeout=5.0)
-
-        logging.info("[Main] Настройка меню команд бота...")
         main_commands = [
             BotCommand(command="start", description="Запустить бота / Показать меню"),
             BotCommand(command="bind", description="Привязать Zulip ID"),
@@ -106,21 +97,23 @@ async def main():
             BotCommand(command="help", description="Показать подробную инструкцию")
         ]
         await bot.set_my_commands(main_commands)
-    except (asyncio.TimeoutError, Exception) as e:
-        logging.warning(f"[Main] Не удалось связаться с Telegram API для настройки команд: {e}. Продолжаем запуск...")
+    except Exception as e:
+        logging.warning(f"[Main] Не удалось связаться с Telegram API: {e}. Продолжаем запуск...")
 
     try:
         async with aiohttp.ClientSession() as session:
-            logging.info("[Main] Запуск параллельных процессов: polling бота и bridge...")
-            await bridge.start(session)
-            asyncio.create_task(dp.start_polling(bot))
+            bridge_task = asyncio.create_task(bridge.start(session))
+            polling_task = asyncio.create_task(dp.start_polling(bot))
+
             await stop_event.wait()
+
+            bridge_task.cancel()
+            polling_task.cancel()
+            await asyncio.gather(bridge_task, polling_task, return_exceptions=True)
+
     finally:
         logging.info("[Main] Закрытие сессии бота Telegram...")
-        try:
-            await bot.session.close()
-        except Exception:
-            pass
+        await bot.session.close()
 
 
 if __name__ == "__main__":
