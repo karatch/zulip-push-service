@@ -1,5 +1,6 @@
-import os
+import asyncio
 import logging
+import os
 import random
 from aiogram import Dispatcher, types, F
 from aiogram.filters import CommandStart, Command, StateFilter
@@ -14,8 +15,7 @@ dp = Dispatcher()
 
 class Registration(StatesGroup):
     waiting_for_email = State()
-    # one-time password
-    waiting_for_otp = State()  # ожидание ввода 4-значного кода верификации
+    waiting_for_otp = State()
 
 
 def get_main_keyboard():
@@ -84,50 +84,44 @@ async def ask_for_email(message: types.Message, state: FSMContext):
 @dp.message(Registration.waiting_for_email)
 async def process_email(message: types.Message, state: FSMContext, zulip_bridge):
     email = message.text.strip().lower()
-
     if "@" not in email:
-        await message.answer("❌ Неверный формат email! Пожалуйста, введите корректный адрес.")
+        await message.answer("❌ Неверный формат email!")
         return
 
     domain = email.split("@")[-1]
     allowed_domains = [d.strip() for d in os.getenv("ALLOWED_COMPANY_DOMAINS", "").split(",") if d.strip()]
-
     if allowed_domains and domain not in allowed_domains:
         logging.warning(f"[Security] Отклонен ввод email с недоверенным доменом: {email}")
-        await message.answer("❌ Доступ запрещен. Регистрация доступна только для сотрудников компании.")
+        await message.answer("❌ Доступ запрещен.")
         return
 
-    await message.answer("🔍 Проверяем ваш email в корпоративной системе Zulip, подождите...")
+    await message.answer("🔍 Проверяем ваш email в Zulip...")
 
-    user_info = zulip_bridge.get_user_id_by_email(email)
+    user_info = await asyncio.to_thread(zulip_bridge.get_user_id_by_email, email)
     if not user_info:
-        await message.answer("❌ Пользователь с таким email не найден в Zulip! Проверьте правильность написания.")
+        await message.answer("❌ Пользователь с таким email не найден в Zulip!")
         return
 
     zulip_id = user_info["zulip_id"]
     full_name = user_info["full_name"]
-
     otp_code = str(random.randint(1000, 9999))
 
     msg_text = (
         f"🤖 **Запрос на привязку Telegram-уведомлений**\n\n"
         f"Уважаемый(ая) {full_name}, кто-то запросил подключение push-уведомлений для вашего аккаунта.\n"
         f"Ваш одноразовый код подтверждения: **{otp_code}**\n\n"
-        f"Введите эти цифры в Telegram-боте. Если это были не вы, просто проигнорируйте сообщение."
+        f"Введите эти цифры в Telegram-боте."
     )
 
-    if not zulip_bridge.send_zulip_private_message(zulip_id, msg_text):
-        await message.answer("❌ Не удалось отправить код верификации в Zulip. Обратитесь к администратору.")
+    if not zulip_bridge.send_zulip_private_message(int(zulip_id), msg_text):
+        await message.answer("❌ Не удалось отправить код верификации в Zulip.")
         return
 
-    # временная память FSM
     await state.update_data(correct_otp=otp_code, target_zulip_id=zulip_id)
-
-    # ожидание ввода кода
     await state.set_state(Registration.waiting_for_otp)
     await message.answer(
-        f"📧 Код подтверждения отправлен в ваши **личные сообщения внутри Zulip** (от имени бота).\n\n"
-        f"Пожалуйста, проверьте Zulip и введите полученный 4-значный код здесь:",
+        f"📧 Код отправлен в ваши **личные сообщения Zulip**.\n\n"
+        f"Введите полученный 4-значный код здесь:",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML"
     )
@@ -136,30 +130,27 @@ async def process_email(message: types.Message, state: FSMContext, zulip_bridge)
 @dp.message(Registration.waiting_for_otp)
 async def process_otp(message: types.Message, state: FSMContext):
     input_otp = message.text.strip()
-
     user_data = await state.get_data()
     correct_otp = user_data.get("correct_otp")
     zulip_id = user_data.get("target_zulip_id")
     tg_id = str(message.from_user.id)
 
     if input_otp != correct_otp:
-        logging.warning(f"[Security] Неверный ввод OTP-кода от TG ID {tg_id}")
-        await message.answer("❌ Неверный код подтверждения! Попробуйте еще раз или нажмите «🚫 Отмена».")
+        logging.warning(f"[Security] Неверный OTP от TG ID {tg_id}")
+        await message.answer("❌ Неверный код! Попробуйте еще раз или нажмите «🚫 Отмена».")
         return
 
     try:
-        database.add_user(zulip_id, tg_id)
+        await asyncio.to_thread(database.add_user, zulip_id, tg_id)
         logging.info(f"[Bot] Безопасная привязка завершена: Zulip {zulip_id} <-> TG {tg_id}")
-
         await message.answer(
             f"🎉 <b>Интеграция успешно активирована!</b>\n\n"
-            f"Ваш Telegram аккаунт надежно связан с Zulip ID <code>{zulip_id}</code>.\n"
-            f"Теперь вы будете получать безопасные уведомления из всех ваших каналов.",
+            f"Ваш Telegram аккаунт связан с Zulip ID <code>{zulip_id}</code>.",
             parse_mode="HTML", reply_markup=get_main_keyboard()
         )
         await state.clear()
     except Exception as e:
-        logging.error(f"[Bot] Ошибка записи в БД при проверке OTP: {e}")
+        logging.error(f"[Bot] Ошибка записи в БД: {e}")
         await message.answer("❌ Ошибка при сохранении в базу данных.", reply_markup=get_main_keyboard())
         await state.clear()
 
@@ -168,20 +159,19 @@ async def process_otp(message: types.Message, state: FSMContext):
 @dp.message(Command("status"))
 async def check_status(message: types.Message):
     tg_id = str(message.from_user.id)
-    associated_zulip_id = database.get_zulip_id_by_tg(tg_id)
+    associated_zulip_id = await asyncio.to_thread(database.get_zulip_id_by_tg, tg_id)
 
     if associated_zulip_id:
         await message.answer(
             f"✅ <b>Ваша интеграция активна!</b>\n\n"
-            f"• Ваш Telegram ID: <code>{tg_id}</code>\n"
-            f"• Связанный Zulip ID: <code>{associated_zulip_id}</code>\n\n"
-            f"Безопасный контур уведомлений активен.",
+            f"• TG ID: <code>{tg_id}</code>\n"
+            f"• Zulip ID: <code>{associated_zulip_id}</code>",
             parse_mode="HTML"
         )
     else:
         await message.answer(
             "⚠️ <b>Аккаунт не привязан.</b>\n"
-            "Нажмите кнопку «🔐 Привязать Zulip ID», чтобы пройти верификацию по почте.",
+            "Нажмите кнопку «🔐 Привязать Zulip ID».",
             parse_mode="HTML"
         )
 
@@ -190,8 +180,8 @@ async def check_status(message: types.Message):
 @dp.message(Command("unbind"))
 async def unregister_user(message: types.Message):
     tg_id = str(message.from_user.id)
-    if database.remove_user_by_tg(tg_id):
-        await message.answer("📴 <b>Интеграция отключена.</b>\nСвязь с сервером разорвана.",
-                             reply_markup=get_main_keyboard(), parse_mode="HTML")
+    success = await asyncio.to_thread(database.remove_user_by_tg, tg_id)
+    if success:
+        await message.answer("📴 <b>Интеграция отключена.</b>", reply_markup=get_main_keyboard(), parse_mode="HTML")
     else:
         await message.answer("Ваш Telegram-аккаунт не был привязан к системе.")
