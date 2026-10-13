@@ -155,12 +155,10 @@ class ZulipTelegramBridge:
         sender_name = msg['sender_full_name']
         topic = msg.get('subject', 'Без темы')
         content = msg.get('content_raw', msg.get('content', ''))
+
         stream_name = msg.get('display_recipient', 'Неизвестный стрим')
         stream_id = msg.get('stream_id')
         message_id = msg.get('id')
-
-        if not isinstance(stream_name, str) or stream_id != self.target_channel_id:
-            return
 
         logging.info(f"[Bridge] Перехвачено сообщение из [{stream_name}] (ID: {stream_id})")
 
@@ -174,6 +172,7 @@ class ZulipTelegramBridge:
         for user_id in subscribers:
             if user_id == sender_id:
                 continue
+
             tg_id = database.get_tg_id_by_zulip(str(user_id))
             if tg_id:
                 sent_counter += 1
@@ -207,6 +206,7 @@ class ZulipTelegramBridge:
                 )
                 self.bot_email = self.zulip_client.email
                 logging.info(f"[Bridge] Успешная авторизация. Email бота: {self.bot_email}")
+
                 break
             except Exception as e:
                 logging.error(f"[Bridge] Ошибка авторизации в Zulip: {e}. Повтор через 15 секунд...")
